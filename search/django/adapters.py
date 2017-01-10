@@ -1,4 +1,3 @@
-import logging
 import operator
 
 from django.db.models import Q as DjangoQ
