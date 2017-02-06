@@ -8,11 +8,8 @@ from django.conf import settings
 
 from djangae.contrib.mappers.pipes import MapReduceTask
 
-from ..indexes import Index
-
 from .indexes import get_index_for_doc, index_instance
 from .registry import registry
-from .utils import get_rank
 
 
 # We can delete up to 200 search documents in one RPC call.
@@ -21,6 +18,8 @@ DELETE_BATCH_SIZE = 200
 # We can retrive up to 1000 in one call but limit to 500 to match
 # datatore __in query limit.
 RETRIEVE_BATCH_SIZE = 500
+
+logger = logging.getLogger(__name__)
 
 
 def get_deferred_target():
@@ -38,13 +37,10 @@ class ReindexMapReduceTask(MapReduceTask):
     def map(instance, *args, **kwargs):
         indexed = index_instance(instance)
         if indexed:
-            logging.info(
-                u"Indexed {}: {}".format(type(instance).__name__, instance.pk)
-            )
+            logger.info(u"Indexed %s: %s", type(instance).__name__, instance.pk)
         else:
-            logging.info(
-                u"Model {} isn't registered as being searchable"
-                .format(type(instance).__name__)
+            logger.info(
+                u"Model %s isn't registered as being searchable", type(instance).__name__
             )
 
 
@@ -65,7 +61,7 @@ def get_models_for_actions(app_label, model_name):
     )
 
     if not len(items):
-        logging.warning('No model found for {} {}'.format(app_label, model_name))
+        logger.warning('No model found for %s %s', app_label, model_name)
 
     return items
 
@@ -81,14 +77,14 @@ def batch_delete_docs(index, doc_ids, batch_size=None):
         # index._index refers the underlying GAE search api index object which
         # exposes the async delete method.
         delete_rpc_operations.append(index._index.delete_async(batch))
-        logging.info(u'Removing doc_ids {}.'.format(", ".join(batch)))
+        logger.info(u'Removing doc_ids %r', batch)
 
     # Not sure we really need to block for the results of the delete operations
     # but just incase..
     for fut in delete_rpc_operations:
         fut.get_result()
 
-    logging.info(u'Removed doc_ids {}.'.format(", ".join(batch)))
+    logger.info(u'Removed doc_ids %r', batch)
 
 
 def purge_index_for_doc(doc_class, batch_size=None):
@@ -103,10 +99,10 @@ def purge_index_for_doc(doc_class, batch_size=None):
             batch_size=batch_size,
             _target=target,
         )
-        logging.info(u'Defer purge "%s" index for next batch.' % index.name)
+        logger.info(u'Defer purge %r index for next batch.', index.name)
         batch_delete_docs(index, doc_ids)
     else:
-        logging.info(u'Purge index "%s" complete.' % index.name)
+        logger.info(u'Purge index %r complete.', index.name)
 
 
 def purge_indexes():
@@ -127,14 +123,12 @@ def remove_orphaned_docs(app_label=None, model_name=None):
     target = get_deferred_target()
 
     if not len(items):
-        logging.warning('No model found for {} {}'.format(app_label, model_name))
+        logger.warning('No model found for %s %s', app_label, model_name)
 
     for model_class, doc_cls in items:
         meta = model_class._meta
-        logging.info(
-            'Remove orphaned docs for {} {} '
-            .format(meta.app_label, meta.model_name)
-        )
+        logger.info('Remove orphaned docs for %s %s', meta.app_label, meta.model_name)
+
         defer(
             remove_orphaned_docs_for_app_model,
             meta.app_label,
@@ -163,9 +157,10 @@ def remove_orphaned_docs_for_app_model(app_label, model_name, start_id=None, bat
     )
 
     if not doc_ids:
-        logging.info(
-            'Finished deferral of orphaned document removal for {} {} '
-            .format(model._meta.app_label, model._meta.model_name)
+        logger.info(
+            'Finished deferral of orphaned document removal for %s %s',
+            model._meta.app_label,
+            model._meta.model_name,
         )
         return
 
@@ -192,9 +187,6 @@ def remove_orphaned_docs_for_app_model(app_label, model_name, start_id=None, bat
     if not orphan_doc_ids:
         return
 
-    logging.info(
-        'Found {} orphaned search documents for {}'
-        .format(orphan_doc_ids, model)
-    )
+    logger.info('Found %r orphaned search documents for %s', orphan_doc_ids, model)
 
     batch_delete_docs(index, orphan_doc_ids)
