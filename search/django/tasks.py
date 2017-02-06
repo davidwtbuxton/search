@@ -1,7 +1,7 @@
 import logging
 
 from google.appengine.api import modules
-from google.appengine.ext.deferred import defer
+from google.appengine.ext import deferred
 
 from django.apps import apps
 from django.conf import settings
@@ -94,7 +94,7 @@ def purge_index_for_doc(doc_class, batch_size=None):
 
     if doc_ids:
         target = get_deferred_target()
-        defer(
+        deferred.defer(
             purge_index_for_doc, doc_class,
             batch_size=batch_size,
             _target=target,
@@ -111,7 +111,7 @@ def purge_indexes():
 
     for (model, (index_name, doc_cls, rank)) in registry.iteritems():
 
-        defer(
+        deferred.defer(
             purge_index_for_doc,
             doc_class=doc_cls,
            _target=target,
@@ -129,7 +129,7 @@ def remove_orphaned_docs(app_label=None, model_name=None):
         meta = model_class._meta
         logger.info('Remove orphaned docs for %s %s', meta.app_label, meta.model_name)
 
-        defer(
+        deferred.defer(
             remove_orphaned_docs_for_app_model,
             meta.app_label,
             meta.model_name,
@@ -166,7 +166,7 @@ def remove_orphaned_docs_for_app_model(app_label, model_name, start_id=None, bat
 
     target = get_deferred_target()
     # Defer the next batch now.
-    defer(
+    deferred.defer(
         remove_orphaned_docs_for_app_model,
         app_label,
         model_name,
