@@ -1,5 +1,6 @@
 import logging
 
+from google.appengine.api import modules
 from google.appengine.ext.deferred import defer
 
 from django.apps import apps
@@ -22,8 +23,16 @@ DELETE_BATCH_SIZE = 200
 RETRIEVE_BATCH_SIZE = 500
 
 
+def get_deferred_target():
+    """Return the name of an App Engine module for running a deferred task."""
+    current_module = modules.get_current_version_name()
+    target = getattr(settings, 'WORKER_MODULE_NAME', current_module)
+
+    return target
+
+
 class ReindexMapReduceTask(MapReduceTask):
-    target = getattr(settings, 'WORKER_MODULE_NAME', 'worker')
+    target = get_deferred_target()
 
     @staticmethod
     def map(instance, *args, **kwargs):
@@ -88,10 +97,11 @@ def purge_index_for_doc(doc_class, batch_size=None):
     doc_ids = index.get_range(limit=batch_size, ids_only=True)
 
     if doc_ids:
+        target = get_deferred_target()
         defer(
             purge_index_for_doc, doc_class,
             batch_size=batch_size,
-            _target=settings.WORKER_MODULE_NAME,
+            _target=target,
         )
         logging.info(u'Defer purge "%s" index for next batch.' % index.name)
         batch_delete_docs(index, doc_ids)
@@ -101,16 +111,20 @@ def purge_index_for_doc(doc_class, batch_size=None):
 
 def purge_indexes():
     """Purge all search indexes"""
+    target = get_deferred_target()
+
     for (model, (index_name, doc_cls, rank)) in registry.iteritems():
+
         defer(
             purge_index_for_doc,
             doc_class=doc_cls,
-           _target=settings.WORKER_MODULE_NAME,
+           _target=target,
         )
 
 
 def remove_orphaned_docs(app_label=None, model_name=None):
     items = get_models_for_actions(app_label, model_name)
+    target = get_deferred_target()
 
     if not len(items):
         logging.warning('No model found for {} {}'.format(app_label, model_name))
@@ -125,7 +139,7 @@ def remove_orphaned_docs(app_label=None, model_name=None):
             remove_orphaned_docs_for_app_model,
             meta.app_label,
             meta.model_name,
-            _target=settings.WORKER_MODULE_NAME,
+            _target=target,
         )
 
 
@@ -155,6 +169,7 @@ def remove_orphaned_docs_for_app_model(app_label, model_name, start_id=None, bat
         )
         return
 
+    target = get_deferred_target()
     # Defer the next batch now.
     defer(
         remove_orphaned_docs_for_app_model,
@@ -162,7 +177,7 @@ def remove_orphaned_docs_for_app_model(app_label, model_name, start_id=None, bat
         model_name,
         start_id=doc_ids[-1],
         batch_size=batch_size,
-        _target=settings.WORKER_MODULE_NAME,
+        _target=target,
     )
 
     # Document ids are string, pks are longs, so ensure types match.
